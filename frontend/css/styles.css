@@ -1,0 +1,294 @@
+/* ==================================================================
+   SkyBalance AVL — Dark aviation theme
+   ================================================================== */
+
+/* ---------- reset & base ---------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:         #0d1117;
+  --surface:    #161b22;
+  --border:     #30363d;
+  --text:       #c9d1d9;
+  --text-dim:   #8b949e;
+  --accent:     #58a6ff;
+  --accent2:    #3fb950;
+  --danger:     #f85149;
+  --warning:    #d29922;
+  --radius:     8px;
+  --gap:        10px;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- header ---------- */
+#app-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+#app-header h1 { font-size: 1.25rem; }
+.badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: .75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--danger);
+  color: #fff;
+}
+.hidden { display: none !important; }
+
+/* ---------- main layout ---------- */
+#app-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 280px 1fr 280px;
+  gap: var(--gap);
+  padding: var(--gap);
+  overflow: hidden;
+}
+
+#panel-left, #panel-right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+
+/* ---------- center (tree) ---------- */
+#panel-center {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+#tree-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#tree-svg {
+  min-width: 100%;
+  min-height: 100%;
+}
+#tree-empty-msg {
+  color: var(--text-dim);
+  position: absolute;
+  text-align: center;
+  pointer-events: none;
+}
+#tree-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+}
+#tree-toolbar button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: .9rem;
+}
+#tree-toolbar button:hover { background: var(--border); }
+
+/* ---------- cards ---------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.card h2 {
+  font-size: .85rem;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+/* ---------- forms ---------- */
+input, select, textarea {
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: .82rem;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+button {
+  padding: 6px 12px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: .82rem;
+  transition: opacity .15s;
+}
+button:hover { opacity: .85; }
+button:disabled { opacity: .4; cursor: default; }
+button.danger { background: var(--danger); }
+button.success { background: var(--accent2); }
+
+.btn-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.btn-group input { flex: 1; margin-bottom: 0; }
+
+/* ---------- info-box ---------- */
+.info-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: .78rem;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---------- metrics table ---------- */
+#metrics-table { width: 100%; border-collapse: collapse; }
+#metrics-table td {
+  padding: 3px 6px;
+  font-size: .8rem;
+  border-bottom: 1px solid var(--border);
+}
+#metrics-table td:last-child { text-align: right; font-weight: 600; }
+
+/* ---------- footer (traversals) ---------- */
+#app-footer { padding: 0 var(--gap) var(--gap); }
+.full-width { width: 100%; }
+
+.traversal-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.tab {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: .78rem;
+}
+.tab.active { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- toast ---------- */
+#toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.toast {
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: .82rem;
+  color: #fff;
+  animation: fadeIn .2s;
+  max-width: 340px;
+}
+.toast.success { background: #238636; }
+.toast.error   { background: #da3633; }
+.toast.info    { background: #1f6feb; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---------- modal ---------- */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 700px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.modal-content h2 { margin-bottom: 10px; }
+
+/* ---------- SVG tree nodes ---------- */
+.tree-edge { stroke: var(--border); stroke-width: 2; }
+.tree-node circle {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2;
+  cursor: pointer;
+  transition: fill .15s;
+}
+.tree-node circle:hover { fill: #1c2431; }
+.tree-node.critical circle { stroke: var(--danger); fill: #2a1215; }
+.tree-node text {
+  fill: var(--text);
+  font-size: 11px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.tree-node .node-bf {
+  fill: var(--text-dim);
+  font-size: 9px;
+}
+
+/* ---------- version list ---------- */
+#version-list {
+  font-size: .78rem;
+  background: var(--bg);
+}
+#version-list option { padding: 4px 8px; }
+
+/* ---------- scrollbar ---------- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1100px) {
+  #app-main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+  #panel-center { min-height: 400px; }
+  #panel-left, #panel-right { max-height: none; }
+}
