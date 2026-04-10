@@ -10,11 +10,12 @@ const TreeRenderer = (() => {
   const PAD          = 40;
 
   let scale = 1;
-  let svg, container;
+  let svg, container, tooltip;
 
   function init() {
     svg       = document.getElementById("tree-svg");
     container = document.getElementById("tree-container");
+    tooltip   = document.getElementById("tree-node-tooltip");
   }
 
   /* ---- layout helpers ---- */
@@ -44,27 +45,38 @@ const TreeRenderer = (() => {
 
   /* ---- render ---- */
 
-  function render(treeData) {
+  function render(treeData, options = {}) {
     if (!svg) init();
-
-    const root = treeData && treeData.root ? treeData.root : null;
     const emptyMsg = document.getElementById("tree-empty-msg");
+    _renderInto(treeData, svg, emptyMsg, scale, options);
+  }
+
+  function renderPreview(treeData, svgElement, emptyElement, options = {}) {
+    if (!svgElement) return;
+    _renderInto(treeData, svgElement, emptyElement, 1, options);
+  }
+
+  function _renderInto(treeData, svgElement, emptyElement, targetScale = 1, options = {}) {
+    const root = treeData && treeData.root ? treeData.root : null;
+    const highlightCodes = new Set(options.highlightCodes || []);
 
     if (!root) {
-      svg.innerHTML = "";
-      if (emptyMsg) emptyMsg.style.display = "";
+      svgElement.innerHTML = "";
+      svgElement.removeAttribute("viewBox");
+      if (emptyElement) emptyElement.style.display = "";
+      if (svgElement === svg) _hideTooltip();
       return;
     }
-    if (emptyMsg) emptyMsg.style.display = "none";
+    if (emptyElement) emptyElement.style.display = "none";
 
     const pos   = _positions(root);
     const codes = Object.keys(pos);
     const maxX  = Math.max(...codes.map(c => pos[c].x)) + PAD + NODE_R;
     const maxY  = Math.max(...codes.map(c => pos[c].y)) + PAD + NODE_R + 30;
 
-    svg.setAttribute("width",  maxX * scale);
-    svg.setAttribute("height", maxY * scale);
-    svg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
+    svgElement.setAttribute("width",  maxX * targetScale);
+    svgElement.setAttribute("height", maxY * targetScale);
+    svgElement.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
 
     let html = "";
 
@@ -87,7 +99,10 @@ const TreeRenderer = (() => {
     /* nodes */
     for (const code of codes) {
       const { x, y, data } = pos[code];
-      const cls = data.is_critical ? "tree-node critical" : "tree-node";
+      const classes = ["tree-node"];
+      if (data.is_critical) classes.push("critical");
+      if (highlightCodes.has(code)) classes.push("highlighted");
+      const cls = classes.join(" ");
       html += `<g class="${cls}" data-code="${code}">`;
       html += `<circle cx="${x}" cy="${y}" r="${NODE_R}"/>`;
       html += `<text x="${x}" y="${y - 4}">${code}</text>`;
@@ -95,7 +110,91 @@ const TreeRenderer = (() => {
       html += `</g>`;
     }
 
-    svg.innerHTML = html;
+    svgElement.innerHTML = html;
+    if (svgElement === svg) _bindTooltipEvents(svgElement, pos);
+  }
+
+  function _bindTooltipEvents(svgElement, pos) {
+    if (!tooltip) return;
+
+    svgElement.querySelectorAll(".tree-node").forEach(group => {
+      const code = group.dataset.code;
+      const nodeData = pos[code]?.data;
+      if (!nodeData) return;
+
+      group.addEventListener("mouseenter", (event) => {
+        _showTooltip(nodeData, event);
+      });
+      group.addEventListener("mousemove", (event) => {
+        _moveTooltip(event);
+      });
+      group.addEventListener("mouseleave", () => {
+        _hideTooltip();
+      });
+    });
+  }
+
+  function _showTooltip(nodeData, event) {
+    if (!tooltip) return;
+    tooltip.innerHTML = _tooltipMarkup(nodeData);
+    tooltip.classList.remove("hidden");
+    _moveTooltip(event);
+  }
+
+  function _moveTooltip(event) {
+    if (!tooltip || tooltip.classList.contains("hidden")) return;
+    const pad = 16;
+    const rect = tooltip.getBoundingClientRect();
+    const maxLeft = window.innerWidth - rect.width - 8;
+    const maxTop = window.innerHeight - rect.height - 8;
+    const left = Math.min(event.clientX + pad, Math.max(8, maxLeft));
+    const top = Math.min(event.clientY + pad, Math.max(8, maxTop));
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function _hideTooltip() {
+    if (!tooltip) return;
+    tooltip.classList.add("hidden");
+  }
+
+  function _tooltipMarkup(nodeData) {
+    const alerts = Array.isArray(nodeData.alerts) && nodeData.alerts.length
+      ? nodeData.alerts.join(", ")
+      : "Sin alertas";
+
+    return `
+      <h3>${_escape(nodeData.flight_code || "Nodo")}</h3>
+      <div class="tree-tooltip-grid">
+        <strong>Ruta</strong><span>${_escape(nodeData.origin || "—")} → ${_escape(nodeData.destination || "—")}</span>
+        <strong>Salida</strong><span>${_escape(nodeData.departure_time || "No registrada")}</span>
+        <strong>Precio base</strong><span>$${_formatNumber(nodeData.base_price)}</span>
+        <strong>Precio final</strong><span>$${_formatNumber(nodeData.final_price)}</span>
+        <strong>Pasajeros</strong><span>${_escape(nodeData.passengers)}</span>
+        <strong>Promoción</strong><span>$${_formatNumber(nodeData.promotion)}</span>
+        <strong>Penalidad</strong><span>$${_formatNumber(nodeData.penalty)}</span>
+        <strong>Prioridad</strong><span>${_escape(nodeData.priority)}</span>
+        <strong>Altura</strong><span>${_escape(nodeData.height)}</span>
+        <strong>Balance</strong><span>${_escape(nodeData.balance_factor)}</span>
+        <strong>Crítico</strong><span>${nodeData.is_critical ? "Sí" : "No"}</span>
+      </div>
+      <div class="tree-tooltip-alerts"><strong>Alertas:</strong> ${_escape(alerts)}</div>
+    `;
+  }
+
+  function _formatNumber(value) {
+    const num = Number(value);
+    if (Number.isNaN(num)) return _escape(value ?? "0");
+    return num.toFixed(2);
+  }
+
+  function _escape(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   /* ---- zoom ---- */
@@ -113,5 +212,5 @@ const TreeRenderer = (() => {
     svg.setAttribute("height", h * scale);
   }
 
-  return { init, render, zoomIn, zoomOut, zoomReset };
+  return { init, render, renderPreview, zoomIn, zoomOut, zoomReset };
 })();

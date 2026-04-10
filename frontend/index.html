@@ -3,68 +3,59 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SkyBalance AVL — Sistema de Gestión Aérea</title>
+  <title>SkyBalance AVL - Sistema de Gesti&oacute;n A&eacute;rea</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
-  <!-- ========== HEADER ========== -->
   <header id="app-header">
-    <h1>✈ SkyBalance AVL</h1>
-    <span id="stress-badge" class="badge hidden">ESTRÉS</span>
+    <h1>DrakoAirlines &#128009;</h1>
+    <span id="stress-badge" class="badge hidden">ESTR&Eacute;S</span>
   </header>
 
-  <!-- ========== MAIN LAYOUT (3 columns) ========== -->
   <main id="app-main">
-
-    <!-- ───── LEFT PANEL ───── -->
     <aside id="panel-left">
-
-      <!-- Load JSON -->
       <section class="card">
         <h2>Cargar JSON</h2>
         <input type="file" id="file-input" accept=".json" />
         <button id="btn-load">Cargar archivo</button>
-        <button id="btn-export">Exportar árbol</button>
+        <button id="btn-export">Exportar &aacute;rbol</button>
       </section>
 
-      <!-- CRUD -->
       <section class="card">
-        <h2>Gestión de Vuelos</h2>
+        <h2>Gesti&oacute;n de Vuelos</h2>
         <form id="flight-form" autocomplete="off">
-          <input name="flight_code" placeholder="Código (e.g. SKY-100)" required />
-          <input name="origin"      placeholder="Origen" required />
-          <input name="destination"  placeholder="Destino" required />
-          <input name="base_price"   placeholder="Precio base" type="number" step="0.01" required />
-          <input name="passengers"   placeholder="Pasajeros" type="number" required />
-          <input name="promotion"    placeholder="Promoción" type="number" step="0.01" value="0" />
-          <input name="priority"     placeholder="Prioridad (1-5)" type="number" min="1" max="5" value="1" />
-          <input name="alerts"       placeholder="Alertas (sep. coma)" />
+          <input name="flight_code" placeholder="C&oacute;digo (ej. SKY-100)" required />
+          <input name="origin" placeholder="Origen" required />
+          <input name="destination" placeholder="Destino" required />
+          <input name="base_price" placeholder="Precio base" type="number" step="0.01" required />
+          <input name="passengers" placeholder="Pasajeros" type="number" required />
+          <input name="promotion" placeholder="Promoci&oacute;n" type="number" step="0.01" value="0" />
+          <input name="priority" placeholder="Prioridad (1-5)" type="number" min="1" max="5" value="1" />
+          <input name="alerts" placeholder="Alertas (separadas por coma)" />
           <div class="btn-group">
             <button type="submit" id="btn-insert">Insertar</button>
             <button type="button" id="btn-modify">Modificar</button>
           </div>
         </form>
         <div class="btn-group">
-          <input id="delete-code" placeholder="Código a eliminar" />
+          <input id="delete-code" placeholder="C&oacute;digo a eliminar" />
           <button id="btn-delete">Eliminar</button>
-          <button id="btn-cancel">Cancelar (sub-árbol)</button>
+          <button id="btn-cancel">Cancelar (sub&aacute;rbol)</button>
         </div>
       </section>
 
-      <!-- Queue -->
       <section class="card">
-        <h2>Cola de Inserción</h2>
-        <button id="btn-queue-add">Encolar (usa form)</button>
+        <h2>Cola de Inserci&oacute;n</h2>
+        <button id="btn-queue-add">Encolar (usa el formulario)</button>
         <button id="btn-queue-next">Procesar siguiente</button>
         <button id="btn-queue-all">Procesar todo</button>
         <div id="queue-info" class="info-box"></div>
       </section>
 
-      <!-- Versions -->
       <section class="card">
         <h2>Versiones</h2>
         <div class="btn-group">
-          <input id="version-name" placeholder="Nombre versión" />
+          <input id="version-name" placeholder="Nombre de la versi&oacute;n" />
           <button id="btn-save-version">Guardar</button>
         </div>
         <select id="version-list" size="3"></select>
@@ -72,25 +63,35 @@
       </section>
     </aside>
 
-    <!-- ───── CENTER (tree viz) ───── -->
     <section id="panel-center">
       <div id="tree-toolbar">
-        <button id="btn-zoom-in" title="Zoom +">+</button>
-        <button id="btn-zoom-out" title="Zoom −">−</button>
-        <button id="btn-zoom-reset" title="Reset">⊙</button>
+        <button id="btn-zoom-in" title="Acercar">+</button>
+        <button id="btn-zoom-out" title="Alejar">&minus;</button>
+        <button id="btn-zoom-reset" title="Restablecer">&#8857;</button>
       </div>
       <div id="tree-container">
         <svg id="tree-svg"></svg>
-        <p id="tree-empty-msg">Carga un JSON o inserta vuelos para visualizar el árbol.</p>
+        <p id="tree-empty-msg">Carga un JSON o inserta vuelos para visualizar el &aacute;rbol.</p>
       </div>
+      <div id="tree-node-tooltip" class="tree-tooltip hidden"></div>
+      <section id="operation-trace-panel" class="operation-trace hidden">
+        <div class="operation-trace-head">
+          <strong id="operation-trace-title">Proceso del &aacute;rbol</strong>
+          <span id="operation-trace-counter">Paso 1 de 1</span>
+        </div>
+        <p id="operation-trace-detail">Aqu&iacute; se mostrar&aacute;n los cambios estructurales del &aacute;rbol.</p>
+        <div class="operation-trace-controls">
+          <button id="btn-trace-prev" type="button">Anterior</button>
+          <button id="btn-trace-play" type="button">Reproducir</button>
+          <button id="btn-trace-next" type="button">Siguiente</button>
+          <button id="btn-trace-close" type="button">Cerrar</button>
+        </div>
+      </section>
     </section>
 
-    <!-- ───── RIGHT PANEL ───── -->
     <aside id="panel-right">
-
-      <!-- Metrics -->
       <section class="card">
-        <h2>Métricas</h2>
+        <h2>M&eacute;tricas</h2>
         <table id="metrics-table">
           <tr><td>Altura</td><td id="m-height">0</td></tr>
           <tr><td>Nodos</td><td id="m-nodes">0</td></tr>
@@ -99,34 +100,31 @@
           <tr><td>Rot. Der.</td><td id="m-rot-r">0</td></tr>
           <tr><td>Doble I-D</td><td id="m-rot-lr">0</td></tr>
           <tr><td>Doble D-I</td><td id="m-rot-rl">0</td></tr>
-          <tr><td>Total Rot.</td><td id="m-rot-total">0</td></tr>
+          <tr><td>Total rot.</td><td id="m-rot-total">0</td></tr>
           <tr><td>Cancelaciones</td><td id="m-cancel">0</td></tr>
         </table>
       </section>
 
-      <!-- Operations -->
       <section class="card">
         <h2>Operaciones</h2>
         <button id="btn-undo" disabled>Deshacer</button>
-        <button id="btn-smart-delete">Eliminación inteligente</button>
+        <button id="btn-smart-delete">Eliminaci&oacute;n inteligente</button>
         <hr />
-        <label>Prof. crítica:
-          <input id="critical-depth" type="number" min="1" value="5" style="width:50px"/>
+        <label>Prof. cr&iacute;tica:
+          <input id="critical-depth" type="number" min="1" value="5" style="width:50px" />
         </label>
         <button id="btn-set-depth">Aplicar</button>
         <hr />
-        <button id="btn-toggle-stress">Activar estrés</button>
+        <button id="btn-toggle-stress">Activar estr&eacute;s</button>
         <button id="btn-rebalance" disabled>Rebalanceo global</button>
         <button id="btn-audit">Auditar AVL</button>
       </section>
 
-      <!-- Audit result -->
       <section class="card" id="audit-section" style="display:none">
-        <h2>Auditoría</h2>
+        <h2>Auditor&iacute;a</h2>
         <pre id="audit-result"></pre>
       </section>
 
-      <!-- Profitability -->
       <section class="card">
         <h2>Rentabilidad</h2>
         <button id="btn-profitability">Ver ranking</button>
@@ -135,33 +133,29 @@
     </aside>
   </main>
 
-  <!-- ========== BOTTOM — Traversals ========== -->
   <footer id="app-footer">
     <section class="card full-width">
       <h2>Recorridos</h2>
       <div class="traversal-tabs">
         <button class="tab active" data-trav="bfs">BFS</button>
-        <button class="tab" data-trav="pre_order">Pre-orden</button>
-        <button class="tab" data-trav="in_order">In-orden</button>
-        <button class="tab" data-trav="post_order">Post-orden</button>
+        <button class="tab" data-trav="pre_order">Preorden</button>
+        <button class="tab" data-trav="in_order">Inorden</button>
+        <button class="tab" data-trav="post_order">Postorden</button>
       </div>
       <div id="traversal-output" class="info-box"></div>
     </section>
   </footer>
 
-  <!-- ========== TOAST ========== -->
   <div id="toast-container"></div>
 
-  <!-- ========== BST comparison modal ========== -->
   <div id="bst-modal" class="modal hidden">
     <div class="modal-content">
-      <h2>Comparación AVL vs BST</h2>
+      <h2>Comparaci&oacute;n AVL vs BST</h2>
       <div id="bst-comparison"></div>
       <button id="btn-close-bst">Cerrar</button>
     </div>
   </div>
 
-  <!-- Scripts -->
   <script src="js/api.js"></script>
   <script src="js/tree_renderer.js"></script>
   <script src="js/metrics_dashboard.js"></script>
