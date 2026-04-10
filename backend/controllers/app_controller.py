@@ -37,6 +37,39 @@ class AppController:
     # helpers
     # ------------------------------------------------------------------
 
+    def _build_tree_summary(self, tree) -> dict:
+        """Build a compact summary for AVL/BST comparison views."""
+        traversal = TraversalService(tree)
+        root = tree.get_root()
+        return {
+            "root": root.to_dict() if root else None,
+            "root_code": root.flight_code if root else None,
+            "height": tree.get_height(),
+            "size": tree.size,
+            "leaf_count": tree.get_leaf_count(),
+            "in_order": [n.to_dict() for n in traversal.in_order()],
+            "tree": self.serializer.serialize_tree(tree),
+        }
+
+    def _build_bst_comparison(self) -> dict | None:
+        """Return AVL vs BST metrics for insertion-based loads."""
+        if self.bst_comparison is None:
+            return None
+
+        avl = self._build_tree_summary(self.avl_tree)
+        bst = self._build_tree_summary(self.bst_comparison)
+        return {
+            "avl": avl,
+            "bst": bst,
+            "height_advantage": bst["height"] - avl["height"],
+            "leaf_difference": avl["leaf_count"] - bst["leaf_count"],
+            "same_in_order": (
+                [n["flight_code"] for n in avl["in_order"]]
+                == [n["flight_code"] for n in bst["in_order"]]
+            ),
+            "root_changed": avl["root_code"] != bst["root_code"],
+        }
+
     def _rebuild_services(self):
         """Re-wire services after the tree reference changes."""
         cd = self.penalty_system.critical_depth
@@ -68,16 +101,13 @@ class AppController:
 
         self._rebuild_services()
         self.penalty_system.set_critical_depth(cd)
+        self.avl_tree.clear_last_operation_trace()
 
         result = {"avl": self.get_tree_state()}
-        if self.bst_comparison:
-            bst_trav = TraversalService(self.bst_comparison)
-            result["bst"] = {
-                "height": self.bst_comparison.get_height(),
-                "size": self.bst_comparison.size,
-                "tree": self.serializer.serialize_tree(self.bst_comparison),
-                "in_order": [n.to_dict() for n in bst_trav.in_order()],
-            }
+        comparison = self._build_bst_comparison()
+        if comparison:
+            result["comparison"] = comparison
+            result["bst"] = comparison["bst"]
         return result
 
     def export_tree(self) -> dict:
@@ -91,13 +121,16 @@ class AppController:
         return self.flight_manager.create_flight(data).to_dict()
 
     def modify_flight(self, code: str, data: dict) -> dict:
-        return self.flight_manager.modify_flight(code, data).to_dict()
+        node = self.flight_manager.modify_flight(code, data).to_dict()
+        self.avl_tree.clear_last_operation_trace()
+        return node
 
     def delete_flight(self, code: str) -> dict:
         return self.flight_manager.delete_flight(code)
 
     def cancel_flight(self, code: str) -> dict:
         sub = self.flight_manager.cancel_flight(code)
+        self.avl_tree.clear_last_operation_trace()
         return {"cancelled_nodes": sub, "count": len(sub)}
 
     # ------------------------------------------------------------------
@@ -105,7 +138,9 @@ class AppController:
     # ------------------------------------------------------------------
 
     def undo(self) -> dict:
-        return self.flight_manager.undo()
+        result = self.flight_manager.undo()
+        self.avl_tree.clear_last_operation_trace()
+        return result
 
     # ------------------------------------------------------------------
     # Smart delete
@@ -135,6 +170,7 @@ class AppController:
     def restore_version(self, name: str) -> dict:
         self.avl_tree = self.version_manager.restore_version(name)
         self._rebuild_services()
+        self.avl_tree.clear_last_operation_trace()
         return self.get_tree_state()
 
     def list_versions(self) -> list:
@@ -212,4 +248,5 @@ class AppController:
             "can_undo": self.flight_manager.can_undo(),
             "undo_history": self.flight_manager.get_undo_history(),
             "critical_depth": self.penalty_system.critical_depth,
+            "operation_trace": self.avl_tree.get_last_operation_trace(),
         }

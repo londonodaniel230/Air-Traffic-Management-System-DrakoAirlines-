@@ -1,286 +1,252 @@
 """
-AVLTree — Self-balancing AVL tree extending BST.
-Adds rotations, stress mode, flight cancellation (subtree removal),
-and global rebalance.  Open/Closed: extends BST without modifying it.
+AppController — single orchestrator that wires every service together
+and exposes the public API consumed by Flask routes.
 """
 
-from models.bst import BST
-from models.flight_node import FlightNode
-from models.rotation_stats import RotationStats
+from models.avl_tree import AVLTree
+from services.flight_manager import FlightManager
+from services.traversal_service import TraversalService
+from services.tree_serializer import TreeSerializer
+from services.version_manager import VersionManager
+from services.concurrency_simulator import ConcurrencySimulator
+from services.metrics_engine import MetricsEngine
+from services.depth_penalty_system import DepthPenaltySystem
+from services.avl_auditor import AVLAuditor
+from services.profitability_analyzer import ProfitabilityAnalyzer
+from services.json_normalizer import JSONNormalizer
 
 
-class AVLTree(BST):
-    """AVL tree with automatic balancing, stress mode and subtree cancellation."""
+class AppController:
+    """Façade that the Flask layer calls.  No HTTP concepts here."""
 
     def __init__(self):
-        super().__init__()
-        self.stress_mode = False
-        self.rotation_stats = RotationStats()
+        self.avl_tree = AVLTree()
+        self.bst_comparison = None          # only set after insertion-load
+        self.normalizer = JSONNormalizer()
+        self.serializer = TreeSerializer()
+        self.penalty_system = DepthPenaltySystem(self.avl_tree)
+        self.flight_manager = FlightManager(self.avl_tree, self.penalty_system)
+        self.traversal = TraversalService(self.avl_tree)
+        self.metrics = MetricsEngine(self.avl_tree, self.traversal)
+        self.version_manager = VersionManager(self.serializer)
+        self.concurrency = ConcurrencySimulator(self.flight_manager)
+        self.auditor = AVLAuditor(self.avl_tree)
+        self.profitability = ProfitabilityAnalyzer(self.avl_tree)
 
     # ------------------------------------------------------------------
-    # Insert (override)
+    # helpers
     # ------------------------------------------------------------------
 
-    def insert(self, node: FlightNode):
-        self.root = self._avl_insert(self.root, node, None)
-        self.size += 1
-
-    def _avl_insert(self, current, node, parent):
-        if current is None:
-            node.parent = parent
-            node.height = 1
-            node.balance_factor = 0
-            return node
-
-        if node.flight_code < current.flight_code:
-            current.left_child = self._avl_insert(
-                current.left_child, node, current
-            )
-        elif node.flight_code > current.flight_code:
-            current.right_child = self._avl_insert(
-                current.right_child, node, current
-            )
-        else:
-            raise ValueError(
-                f"Flight {node.flight_code} already exists in the tree"
-            )
-
-        self._update_height(current)
-        if not self.stress_mode:
-            current = self._balance(current)
-        return current
-
-    # ------------------------------------------------------------------
-    # Delete single node (override)
-    # ------------------------------------------------------------------
-
-    def delete(self, flight_code: str) -> dict:
-        target = self.search(flight_code)
-        if target is None:
-            raise ValueError(f"Flight {flight_code} not found")
-        snapshot = target.to_dict()
-        self.root = self._avl_delete(self.root, flight_code)
-        self._fix_root_parent()
-        self.size -= 1
-        return snapshot
-
-    def _avl_delete(self, current, code):
-        if current is None:
-            return None
-
-        if code < current.flight_code:
-            current.left_child = self._avl_delete(current.left_child, code)
-            self._link_parent(current.left_child, current)
-        elif code > current.flight_code:
-            current.right_child = self._avl_delete(current.right_child, code)
-            self._link_parent(current.right_child, current)
-        else:
-            if current.left_child is None:
-                return current.right_child
-            if current.right_child is None:
-                return current.left_child
-            successor = self._find_min(current.right_child)
-            current.copy_data_from(successor)
-            current.right_child = self._avl_delete(
-                current.right_child, successor.flight_code
-            )
-            self._link_parent(current.right_child, current)
-
-        self._update_height(current)
-        if not self.stress_mode:
-            current = self._balance(current)
-        return current
-
-    # ------------------------------------------------------------------
-    # Cancel flight (delete entire sub-tree)
-    # ------------------------------------------------------------------
-
-    def cancel_flight(self, flight_code: str) -> list:
-        """Remove node + all descendants. Returns list[dict] for undo."""
-        node = self.search(flight_code)
-        if node is None:
-            raise ValueError(f"Flight {flight_code} not found")
-
-        subtree_data = self._collect_subtree(node)
-        parent = node.parent
-
-        # Disconnect from parent
-        if parent is None:
-            self.root = None
-        elif parent.left_child is node:
-            parent.left_child = None
-        else:
-            parent.right_child = None
-        node.parent = None
-
-        self.size -= len(subtree_data)
-        self.rotation_stats.increment_cancellation()
-
-        # Rebalance upward from parent
-        if not self.stress_mode and parent is not None:
-            self._rebalance_upward(parent)
-
-        return subtree_data
-
-    def _collect_subtree(self, node) -> list:
-        """Pre-order collection of all nodes in a sub-tree as dicts."""
-        if node is None:
-            return []
-        result = [node.to_dict()]
-        result.extend(self._collect_subtree(node.left_child))
-        result.extend(self._collect_subtree(node.right_child))
-        return result
-
-    def _rebalance_upward(self, node):
-        """Walk from *node* to the root, balancing at each level."""
-        current = node
-        while current is not None:
-            self._update_height(current)
-            parent = current.parent
-            balanced = self._balance(current)
-
-            if parent is None:
-                self.root = balanced
-                balanced.parent = None
-            elif parent.left_child is current:
-                parent.left_child = balanced
-                balanced.parent = parent
-            else:
-                parent.right_child = balanced
-                balanced.parent = parent
-
-            current = parent
-
-    # ------------------------------------------------------------------
-    # Rotations
-    # ------------------------------------------------------------------
-
-    def _balance(self, node):
-        """Apply rotation if |BF| > 1. Returns new sub-tree root."""
-        if node is None:
-            return None
-
-        bf = self._bf(node)
-
-        # Left-heavy
-        if bf > 1:
-            if self._bf(node.left_child) < 0:
-                # Left-Right case
-                node.left_child = self._rotate_left(node.left_child)
-                self._link_parent(node.left_child, node)
-                result = self._rotate_right(node)
-                self.rotation_stats.increment("left_right")
-            else:
-                # Left-Left case → single right rotation
-                result = self._rotate_right(node)
-                self.rotation_stats.increment("right")
-            self._propagate_parents(result)
-            return result
-
-        # Right-heavy
-        if bf < -1:
-            if self._bf(node.right_child) > 0:
-                # Right-Left case
-                node.right_child = self._rotate_right(node.right_child)
-                self._link_parent(node.right_child, node)
-                result = self._rotate_left(node)
-                self.rotation_stats.increment("right_left")
-            else:
-                # Right-Right case → single left rotation
-                result = self._rotate_left(node)
-                self.rotation_stats.increment("left")
-            self._propagate_parents(result)
-            return result
-
-        return node
-
-    def _rotate_left(self, z):
-        y = z.right_child
-        t2 = y.left_child
-
-        y.left_child = z
-        z.right_child = t2
-
-        if t2:
-            t2.parent = z
-        y.parent = z.parent
-        z.parent = y
-
-        self._update_height(z)
-        self._update_height(y)
-        return y
-
-    def _rotate_right(self, z):
-        y = z.left_child
-        t3 = y.right_child
-
-        y.right_child = z
-        z.left_child = t3
-
-        if t3:
-            t3.parent = z
-        y.parent = z.parent
-        z.parent = y
-
-        self._update_height(z)
-        self._update_height(y)
-        return y
-
-    @staticmethod
-    def _propagate_parents(node):
-        """Ensure immediate children have correct parent pointer."""
-        if node is None:
-            return
-        if node.left_child:
-            node.left_child.parent = node
-        if node.right_child:
-            node.right_child.parent = node
-
-    def _bf(self, node) -> int:
-        if node is None:
-            return 0
-        lh = node.left_child.height if node.left_child else 0
-        rh = node.right_child.height if node.right_child else 0
-        return lh - rh
-
-    # ------------------------------------------------------------------
-    # Stress mode & Global rebalance
-    # ------------------------------------------------------------------
-
-    def toggle_stress_mode(self) -> bool:
-        self.stress_mode = not self.stress_mode
-        return self.stress_mode
-
-    def global_rebalance(self) -> dict:
-        """Rebalance entire tree bottom-up. Returns report dict."""
-        initial_height = self.get_height()
-        snap = self.rotation_stats.get_summary()
-
-        self.stress_mode = False
-        self.root = self._rebalance_subtree(self.root)
-        self._fix_root_parent()
-
-        after = self.rotation_stats.get_summary()
+    def _build_tree_summary(self, tree) -> dict:
+        """Build a compact summary for AVL/BST comparison views."""
+        traversal = TraversalService(tree)
+        root = tree.get_root()
         return {
-            "initial_height": initial_height,
-            "final_height": self.get_height(),
-            "rotations": {
-                k: after[k] - snap[k]
-                for k in ("left", "right", "left_right", "right_left")
-            },
-            "total_new_rotations": after["total_rotations"] - snap["total_rotations"],
+            "root": root.to_dict() if root else None,
+            "root_code": root.flight_code if root else None,
+            "height": tree.get_height(),
+            "size": tree.size,
+            "leaf_count": tree.get_leaf_count(),
+            "in_order": [n.to_dict() for n in traversal.in_order()],
+            "tree": self.serializer.serialize_tree(tree),
         }
 
-    def _rebalance_subtree(self, node):
-        """Post-order recursive rebalance of an entire sub-tree."""
-        if node is None:
+    def _build_bst_comparison(self) -> dict | None:
+        """Return AVL vs BST metrics for insertion-based loads."""
+        if self.bst_comparison is None:
             return None
 
-        node.left_child = self._rebalance_subtree(node.left_child)
-        self._link_parent(node.left_child, node)
+        avl = self._build_tree_summary(self.avl_tree)
+        bst = self._build_tree_summary(self.bst_comparison)
+        return {
+            "avl": avl,
+            "bst": bst,
+            "height_advantage": bst["height"] - avl["height"],
+            "leaf_difference": avl["leaf_count"] - bst["leaf_count"],
+            "same_in_order": (
+                [n["flight_code"] for n in avl["in_order"]]
+                == [n["flight_code"] for n in bst["in_order"]]
+            ),
+            "root_changed": avl["root_code"] != bst["root_code"],
+        }
 
-        node.right_child = self._rebalance_subtree(node.right_child)
-        self._link_parent(node.right_child, node)
+    def _rebuild_services(self):
+        """Re-wire services after the tree reference changes."""
+        cd = self.penalty_system.critical_depth
+        self.penalty_system = DepthPenaltySystem(self.avl_tree, cd)
+        self.flight_manager = FlightManager(self.avl_tree, self.penalty_system)
+        self.traversal = TraversalService(self.avl_tree)
+        self.metrics = MetricsEngine(self.avl_tree, self.traversal)
+        self.concurrency = ConcurrencySimulator(self.flight_manager)
+        self.auditor = AVLAuditor(self.avl_tree)
+        self.profitability = ProfitabilityAnalyzer(self.avl_tree)
 
-        self._update_height(node)
-        return self._balance(node)
+    # ------------------------------------------------------------------
+    # Load / Export
+    # ------------------------------------------------------------------
+
+    def load_from_json(self, data: dict, mode: str = "topology") -> dict:
+        # Normalize Spanish-format JSON if needed
+        data = self.normalizer.normalize(data)
+        mode = data.get("load_mode", mode)
+        cd = data.get("critical_depth", self.penalty_system.critical_depth)
+
+        if mode == "topology":
+            self.avl_tree = self.serializer.deserialize_topology(data)
+            self.bst_comparison = None
+        else:
+            self.avl_tree, self.bst_comparison = (
+                self.serializer.deserialize_insertion(data)
+            )
+
+        self._rebuild_services()
+        self.penalty_system.set_critical_depth(cd)
+        self.avl_tree.clear_last_operation_trace()
+
+        result = {"avl": self.get_tree_state()}
+        comparison = self._build_bst_comparison()
+        if comparison:
+            result["comparison"] = comparison
+            result["bst"] = comparison["bst"]
+        return result
+
+    def export_tree(self) -> dict:
+        return self.serializer.serialize_tree(self.avl_tree)
+
+    # ------------------------------------------------------------------
+    # Flight CRUD
+    # ------------------------------------------------------------------
+
+    def create_flight(self, data: dict) -> dict:
+        return self.flight_manager.create_flight(data).to_dict()
+
+    def modify_flight(self, code: str, data: dict) -> dict:
+        node = self.flight_manager.modify_flight(code, data).to_dict()
+        self.avl_tree.clear_last_operation_trace()
+        return node
+
+    def delete_flight(self, code: str) -> dict:
+        return self.flight_manager.delete_flight(code)
+
+    def cancel_flight(self, code: str) -> dict:
+        sub = self.flight_manager.cancel_flight(code)
+        self.avl_tree.clear_last_operation_trace()
+        return {"cancelled_nodes": sub, "count": len(sub)}
+
+    # ------------------------------------------------------------------
+    # Undo
+    # ------------------------------------------------------------------
+
+    def undo(self) -> dict:
+        result = self.flight_manager.undo()
+        self.avl_tree.clear_last_operation_trace()
+        return result
+
+    # ------------------------------------------------------------------
+    # Smart delete
+    # ------------------------------------------------------------------
+
+    def smart_delete(self) -> dict:
+        node = self.profitability.find_least_profitable()
+        if node is None:
+            raise ValueError("Tree is empty")
+        prof = self.profitability.calculate(node)
+        sub = self.flight_manager.cancel_flight(node.flight_code)
+        return {
+            "target": node.flight_code,
+            "profitability": prof,
+            "cancelled_nodes": sub,
+            "count": len(sub),
+        }
+
+    # ------------------------------------------------------------------
+    # Versions
+    # ------------------------------------------------------------------
+
+    def save_version(self, name: str) -> dict:
+        m = self.metrics.get_dashboard_data()
+        return self.version_manager.save_version(name, self.avl_tree, m).to_dict()
+
+    def restore_version(self, name: str) -> dict:
+        self.avl_tree = self.version_manager.restore_version(name)
+        self._rebuild_services()
+        self.avl_tree.clear_last_operation_trace()
+        return self.get_tree_state()
+
+    def list_versions(self) -> list:
+        return self.version_manager.list_versions()
+
+    # ------------------------------------------------------------------
+    # Queue / Concurrency
+    # ------------------------------------------------------------------
+
+    def schedule_insertion(self, data: dict) -> dict:
+        return self.concurrency.schedule_insertion(data)
+
+    def process_next(self) -> dict:
+        return self.concurrency.process_next()
+
+    def process_all(self) -> list:
+        return self.concurrency.process_all()
+
+    def get_queue_status(self) -> dict:
+        return self.concurrency.get_queue_status()
+
+    # ------------------------------------------------------------------
+    # Stress mode
+    # ------------------------------------------------------------------
+
+    def toggle_stress(self) -> dict:
+        return {"stress_mode": self.avl_tree.toggle_stress_mode()}
+
+    def global_rebalance(self) -> dict:
+        self.avl_tree.stress_mode = False
+        report = self.avl_tree.global_rebalance()
+        self.penalty_system.recalculate_all_prices()
+        return report
+
+    # ------------------------------------------------------------------
+    # Audit
+    # ------------------------------------------------------------------
+
+    def audit(self) -> dict:
+        return self.auditor.verify_avl_property().to_dict()
+
+    # ------------------------------------------------------------------
+    # Metrics / Traversals
+    # ------------------------------------------------------------------
+
+    def get_metrics(self) -> dict:
+        return self.metrics.get_dashboard_data()
+
+    def get_traversals(self) -> dict:
+        return self.metrics.get_all_traversals()
+
+    # ------------------------------------------------------------------
+    # Penalty
+    # ------------------------------------------------------------------
+
+    def set_critical_depth(self, depth: int) -> dict:
+        self.penalty_system.set_critical_depth(depth)
+        return {"critical_depth": depth}
+
+    # ------------------------------------------------------------------
+    # Profitability
+    # ------------------------------------------------------------------
+
+    def get_profitability_ranking(self) -> list:
+        return self.profitability.get_ranking()
+
+    # ------------------------------------------------------------------
+    # Full state
+    # ------------------------------------------------------------------
+
+    def get_tree_state(self) -> dict:
+        return {
+            "tree": self.serializer.serialize_tree(self.avl_tree),
+            "metrics": self.metrics.get_dashboard_data(),
+            "can_undo": self.flight_manager.can_undo(),
+            "undo_history": self.flight_manager.get_undo_history(),
+            "critical_depth": self.penalty_system.critical_depth,
+            "operation_trace": self.avl_tree.get_last_operation_trace(),
+        }
